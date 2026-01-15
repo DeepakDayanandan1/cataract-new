@@ -17,10 +17,19 @@ def extract_green_channel(image):
 def apply_clahe(image, clip_limit=2.0, tile_grid_size=(8, 8)):
     """
     Applies Contrast Limited Adaptive Histogram Equalization (CLAHE).
-    Enhances local contrast, making details in the eye more visible.
+    Enhances local contrast.
+    If image is RGB, converts to LAB, applies to L channel, converts back.
     """
     clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-    return clahe.apply(image)
+    
+    if len(image.shape) == 3: # RGB Image
+        lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        l2 = clahe.apply(l)
+        lab = cv2.merge((l2, a, b))
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+    else: # Grayscale
+        return clahe.apply(image)
 
 def normalize_image(image):
     """
@@ -40,13 +49,18 @@ def remove_noise(image):
     """
     return cv2.GaussianBlur(image, (5, 5), 0)
 
-def preprocess_pipeline(image, target_size=(224, 224)):
+def preprocess_pipeline(image, target_size=(224, 224), use_green_channel=True):
     """
-    Full preprocessing pipeline:
-    Resize -> Green Channel -> Noise Reduction -> CLAHE -> Normalize
+    Full preprocessing pipeline.
+    
+    Args:
+        image: Input RGB image
+        target_size: (height, width)
+        use_green_channel: If True, extracts green channel (Fundus). 
+                           If False, uses full RGB (Slit-lamp).
     
     Returns:
-        processed_image: The final image ready for the model (H, W) or (H, W, C)
+        processed_image: The final image ready for the model (H, W, 3)
         intermediate_steps: Dictionary containing images at each step for visualization
     """
     steps = {}
@@ -55,12 +69,16 @@ def preprocess_pipeline(image, target_size=(224, 224)):
     resized = resize_image(image, size=target_size)
     steps['resized'] = resized
     
-    # 2. Green Channel Extraction
-    green = extract_green_channel(resized)
-    steps['green_channel'] = green
+    # 2. Green Channel Extraction (Conditional)
+    if use_green_channel:
+        current_img = extract_green_channel(resized)
+        steps['green_channel'] = current_img
+    else:
+        current_img = resized
+        steps['green_channel'] = resized # Store RGB here for UI compatibility
     
-    # 3. Noise Reduction (Optional but recommended)
-    denoised = remove_noise(green)
+    # 3. Noise Reduction
+    denoised = remove_noise(current_img)
     steps['denoised'] = denoised
     
     # 4. CLAHE
@@ -69,9 +87,13 @@ def preprocess_pipeline(image, target_size=(224, 224)):
     
     # 5. Normalization
     normalized = normalize_image(enhanced)
-    # Stack to 3 channels for DenseNet input (it implies 3 channels usually)
-    # We can replicate the channel 3 times or train on 1 channel. 
-    # Transfer learning models expect 3 channels.
-    final_input = np.stack((normalized,)*3, axis=-1)
+    
+    # Final Channel Stacking
+    if use_green_channel:
+        # (H, W) -> (H, W, 3)
+        final_input = np.stack((normalized,)*3, axis=-1)
+    else:
+        # Already (H, W, 3)
+        final_input = normalized
     
     return final_input, steps

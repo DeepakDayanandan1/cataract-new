@@ -115,7 +115,8 @@ class SlitLampDataset(Dataset):
 
         try:
             image = load_image(img_path)
-            processed_img, steps = preprocess_pipeline(image, target_size=Config.IMAGE_SIZE)
+            # Use full RGB for Slit-Lamp
+            processed_img, steps = preprocess_pipeline(image, target_size=Config.IMAGE_SIZE, use_green_channel=False)
             
             # Stack 3 channels for DenseNet
             if processed_img.shape[-1] != 3:

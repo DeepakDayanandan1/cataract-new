@@ -158,13 +158,12 @@ def predict_slit_lamp():
         image = load_image(filepath) # Returns RGB
         
         # Get intermediate steps
-        processed_input, steps = preprocess_pipeline(image, target_size=Config.IMAGE_SIZE)
+        processed_input, steps = preprocess_pipeline(image, target_size=Config.IMAGE_SIZE, use_green_channel=False)
         
         # 3. Save Steps for Visualization
         visualizations = {}
         visualizations['original'] = url_for('static', filename=f'uploads/{filename}')
         
-        visualizations['green'] = save_temp_image(steps['green_channel'], 'slit_green')
         visualizations['denoised'] = save_temp_image(steps['denoised'], 'slit_denoised')
         visualizations['clahe'] = save_temp_image(steps['enhanced'], 'slit_clahe')
         

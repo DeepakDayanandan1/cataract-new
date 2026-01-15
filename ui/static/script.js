@@ -53,7 +53,6 @@ function handleSlitFile(file) {
 function displaySlitResults(data) {
     // Set Images
     document.getElementById('slit-img-original').src = data.visualizations.original;
-    document.getElementById('slit-img-green').src = data.visualizations.green;
     document.getElementById('slit-img-denoised').src = data.visualizations.denoised;
     document.getElementById('slit-img-clahe').src = data.visualizations.clahe;
 
