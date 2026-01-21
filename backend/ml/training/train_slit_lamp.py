@@ -79,29 +79,30 @@ def main(args):
     
     # 1. Prepare Data
     # 1. Prepare Data
-    full_dataset = SlitLampDataset(root_dir=Config.RAW_DATA_SLIT_LAMP)
+    processed_root = os.path.join(Config.PROCESSED_DATA_DIR, 'slitlamp')
     
-    # Split 80/20
-    train_size = int(0.8 * len(full_dataset))
-    valid_size = len(full_dataset) - train_size
-    train_subset, valid_subset = random_split(full_dataset, [train_size, valid_size])
+    # Train
+    train_dataset = SlitLampDataset(
+        root_dir=processed_root,
+        split='train',
+        transform=None,
+        is_preprocessed=True
+    )
     
-    class TransformDataset(Dataset):
-        def __init__(self, subset, transform=None):
-            self.subset = subset
-            self.transform = transform
-            
-        def __getitem__(self, index):
-            x, y = self.subset[index]
-            if self.transform:
-                x = self.transform(x)
-            return x, y
-            
-        def __len__(self):
-            return len(self.subset)
-
-    train_dataset = TransformDataset(train_subset, transform=get_train_transforms('slit_lamp'))
-    valid_dataset = TransformDataset(valid_subset, transform=get_valid_transforms('slit_lamp'))
+    # Valid
+    valid_dataset = SlitLampDataset(
+        root_dir=processed_root,
+        split='val',
+        transform=None,
+        is_preprocessed=True
+    )
+    
+    # Note: Slit lamp script didn't have Test set explicitly in original loop, 
+    # but our prepare script created one. We can add it or just ignore for now to keep changes minimal.
+    # The user asked just to support the new augmentation strategy for training.
+    
+    # We remove the custom TransformDataset class since we use SlitLampDataset directly.
+   
     
     train_loader = DataLoader(
         train_dataset, 
@@ -116,7 +117,6 @@ def main(args):
         num_workers=Config.NUM_WORKERS
     )
     
-    print(f"Total samples: {len(full_dataset)}")
     print(f"Train samples: {len(train_dataset)}, Valid samples: {len(valid_dataset)}")
     
     if args.dry_run:
@@ -147,9 +147,17 @@ def main(args):
         if valid_acc > best_valid_acc:
             best_valid_acc = valid_acc
             patience_counter = 0
-            save_path = os.path.join(Config.MODEL_SAVE_DIR, f"{Config.SLIT_LAMP_MODEL_NAME}_best.pth")
-            torch.save(model.state_dict(), save_path)
-            print(f"Model saved to {save_path}")
+            
+            import time
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            
+            unique_save_path = os.path.join(Config.MODEL_SAVE_DIR, f"{Config.SLIT_LAMP_MODEL_NAME}_best_{timestamp}.pth")
+            standard_save_path = os.path.join(Config.MODEL_SAVE_DIR, f"{Config.SLIT_LAMP_MODEL_NAME}_best.pth")
+            
+            torch.save(model.state_dict(), unique_save_path)
+            torch.save(model.state_dict(), standard_save_path)
+            
+            print(f"Model saved to {unique_save_path} and updated {standard_save_path}")
         else:
             patience_counter += 1
             

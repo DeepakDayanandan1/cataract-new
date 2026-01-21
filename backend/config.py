@@ -10,7 +10,7 @@ class Config:
     # Raw Data
     RAW_DATA_BINARY = os.path.join(DATA_DIR, 'raw', 'fundus_binary')
     RAW_DATA_MULTICLASS = os.path.join(DATA_DIR, 'raw', 'fundus_multiclass')
-    RAW_DATA_SLIT_LAMP = os.path.join(DATA_DIR, 'raw', 'slit_lamp')
+    RAW_DATA_SLIT_LAMP = os.path.join(DATA_DIR, 'raw', 'slit_lamp', 'slit-lamp')
     
     # Processed Data
     PROCESSED_DATA_DIR = os.path.join(DATA_DIR, 'processed')
@@ -45,6 +45,11 @@ class Config:
     
     # Random Seed
     SEED = 42
+
+    # Offline Augmentation
+    TARGET_SIZE = (224, 224)
+    AUGMENTATION_ENABLED = True
+    AUGMENTATION_FACTOR = 4
 
     @staticmethod
     def ensure_dirs():

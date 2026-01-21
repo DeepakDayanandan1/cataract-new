@@ -139,48 +139,34 @@ def main(args):
     print(f"Using device: {device}")
     
     # 1. Prepare Data
-    # Point explicitly to the new dataset folder
-    dataset_dir = Config.RAW_DATA_MULTICLASS
+    # Point explicitly to the new processed dataset folder
+    dataset_dir = os.path.join(Config.PROCESSED_DATA_DIR, 'fundus', 'multiclass')
     
-    if not os.path.exists(dataset_dir):
-        print(f"Dataset directory not found: {dataset_dir}")
-        return
-
-    paths, labels, class_map = load_all_data(dataset_dir)
-    print(f"Total images found: {len(paths)}")
-    print(f"Class mapping: {class_map}")
+    # We no longer need to split manually or use expansion_factor here, 
+    # as the data preparation script handled splitting and augmentation.
     
-    # Split 70/15/15
-    # First split: 70% Train, 30% Temp (Valid + Test)
-    X_train, X_temp, y_train, y_temp = train_test_split(
-        paths, labels, test_size=0.30, stratify=labels, random_state=42
-    )
-    
-    # Second split: Split Temp equally (15% Valid, 15% Test of original total)
-    X_valid, X_test, y_valid, y_test = train_test_split(
-        X_temp, y_temp, test_size=0.50, stratify=y_temp, random_state=42
-    )
-    
-    print(f"Split sizes: Train={len(X_train)}, Valid={len(X_valid)}, Test={len(X_test)}")
-    
-    # Create Datasets
-    # Train: Expansion factor 4 (4x size effectively via augmentation)
+    # Train
     train_ds = MultiClassCataractDataset(
-        X_train, y_train, 
-        transform=get_train_transforms('fundus'), 
-        expansion_factor=4
+        root_dir=dataset_dir,
+        split='train',
+        transform=None,
+        is_preprocessed=True
     )
     
+    # Valid
     valid_ds = MultiClassCataractDataset(
-        X_valid, y_valid, 
-        transform=get_valid_transforms('fundus'), 
-        expansion_factor=1
+        root_dir=dataset_dir,
+        split='val',
+        transform=None,
+        is_preprocessed=True
     )
     
+    # Test
     test_ds = MultiClassCataractDataset(
-        X_test, y_test, 
-        transform=get_valid_transforms('fundus'), 
-        expansion_factor=1
+        root_dir=dataset_dir,
+        split='test',
+        transform=None,
+        is_preprocessed=True
     )
     
     print(f"Train Dataset Length (with expansion): {len(train_ds)}")
@@ -221,9 +207,17 @@ def main(args):
         # Save Best Model based on Valid F1
         if valid_f1 > best_f1:
             best_f1 = valid_f1
-            save_path = os.path.join(Config.MODEL_SAVE_DIR, "densenet_multiclass_best.pth")
-            torch.save(model.state_dict(), save_path)
-            print(f"Model saved to {save_path}")
+            
+            import time
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            
+            unique_save_path = os.path.join(Config.MODEL_SAVE_DIR, f"densenet_multiclass_best_{timestamp}.pth")
+            standard_save_path = os.path.join(Config.MODEL_SAVE_DIR, "densenet_multiclass_best.pth")
+            
+            torch.save(model.state_dict(), unique_save_path)
+            torch.save(model.state_dict(), standard_save_path)
+            
+            print(f"Model saved to {unique_save_path} and updated {standard_save_path}")
             
     print("\nTraining Complete. Evaluating on Test Set with Best Model...")
     

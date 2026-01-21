@@ -1,0 +1,83 @@
+# Image Processing and Training Workflow Details
+
+This document details exactly how an image is processed and trained for each of the three models in the Cataract AI Diagnostic System.
+
+## 1. Preprocessing Pipeline (Common Logic)
+All preprocessing logic is centralized in `backend/ml/preprocessing/pipeline.py`.
+
+### Steps:
+1.  **Resize**: Image is resized to 224x224.
+    *   Code: `backend/ml/preprocessing/pipeline.py`, Line 31 (`resize_image` function)
+    *   Called at: Line 78 inside `preprocess_pipeline`.
+2.  **Green Channel Extraction** (Fundus Only): Extracts the green channel as it provides the best contrast for retinal structures.
+    *   Code: `backend/ml/preprocessing/pipeline.py`, Line 5 (`extract_green_channel` function).
+    *   Called at: Line 83.
+3.  **Noise Reduction**: Applies Gaussian Blur to reduce high-frequency noise.
+    *   Code: `backend/ml/preprocessing/pipeline.py`, Line 37 (`remove_noise` function).
+    *   Called at: Line 87 (Fundus) or Line 100 (Slit-lamp).
+4.  **Contrast Enhancement (CLAHE)**: Locally optimizes contrast to highlight opacities.
+    *   Code: `backend/ml/preprocessing/pipeline.py`, Line 17 (`apply_clahe` function).
+    *   Called at: Line 91 (Fundus) or Line 104 (Slit-lamp).
+5.  **Normalization**: scales pixel values to [0, 1].
+    *   Code: `backend/ml/preprocessing/pipeline.py`, Line 25 (`normalize_image` function).
+    *   Called at: Line 95 (Fundus) or Line 108 (Slit-lamp).
+
+---
+
+## 2. Model 1: Fundus Binary Classification (Normal vs Cataract)
+
+### Data Loading & Processing
+*   **File**: `backend/ml/preprocessing/dataset.py`, Line 11 (`CataractDataset` class).
+*   **Step 1: Load Image**: Line 53 uses `load_image`.
+*   **Step 2: Pipeline**: Line 57 calls `preprocess_pipeline(image, target_size=Config.IMAGE_SIZE)`. This triggers the "Fundus" path (extracts green channel).
+*   **Step 3: Augmentation**: Line 63 applies random rotations/flips defined in `backend/ml/preprocessing/augmentations.py` (Line 12).
+
+### Training Workflow
+*   **File**: `backend/ml/training/train_binary.py`.
+*   **Loop**: Line 142 starts the epoch loop.
+*   **Training Step (`train_one_epoch`)**: Line 22.
+    *   **Forward Pass**: Line 34 `outputs = model(images)`.
+    *   **Loss Calculation**: Line 35 uses `BCEWithLogitsLoss`.
+    *   **Backpropagation**: Line 37 `loss.backward()`.
+    *   **Optimizer Step**: Line 38 `optimizer.step()`.
+*   **Validation**: Line 59 evaluates model performance on unseen data.
+
+---
+
+## 3. Model 2: Fundus Multi-Class Classification (Normal, Mild, Moderate, Severe)
+
+### Data Loading & Processing
+*   **File**: `backend/ml/preprocessing/dataset.py`, Line 140 (`MultiClassCataractDataset` class).
+*   **Step 1: Load Image**: Line 166.
+*   **Step 2: Pipeline**: Line 171 calls `preprocess_pipeline` (same Fundus path as binary).
+*   **Step 3: Augmentation**: Line 168 in `train_multiclass.py` sets expansion factor to 4x, applying transforms defined in `augmentations.py`.
+
+### Training Workflow
+*   **File**: `backend/ml/training/train_multiclass.py`.
+*   **Loop**: Line 207 starts the epoch loop.
+*   **Training Step (`train_one_epoch`)**: Line 66.
+    *   **Forward Pass**: Line 78 `outputs = model(images)`.
+    *   **Loss Calculation**: Line 79 uses `CrossEntropyLoss`.
+    *   **Backpropagation**: Line 81.
+    *   **Optimizer Step**: Line 82.
+*   **Metrics**: Calculates Accuracy, Precision, Recall, and F1-Score (Lines 95-98).
+
+---
+
+## 4. Model 3: Slit-Lamp Classification (Normal, Immature, Mature)
+
+### Data Loading & Processing
+*   **File**: `backend/ml/preprocessing/dataset.py`, Line 77 (`SlitLampDataset` class).
+*   **Step 1: Load Image**: Line 117.
+*   **Step 2: Pipeline**: Line 118 calls `preprocess_pipeline(..., use_green_channel=False)`.
+    *   **Difference**: This path SKIPS green channel extraction. It processes the full Color image using `apply_clahe_color` (Pipeline.py, Line 43).
+*   **Step 3: Augmentation**: Line 103 in `train_slit_lamp.py` applies specific Slit-Lamp transforms (Line 31 in `augmentations.py`).
+
+### Training Workflow
+*   **File**: `backend/ml/training/train_slit_lamp.py`.
+*   **Loop**: Line 137 starts the epoch loop.
+*   **Training Step (`train_one_epoch`)**: Line 20.
+    *   **Forward Pass**: Line 32.
+    *   **Loss Calculation**: Line 33 uses `CrossEntropyLoss`.
+    *   **Backpropagation**: Line 35.
+    *   **Optimizer Step**: Line 36.

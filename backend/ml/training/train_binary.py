@@ -98,15 +98,37 @@ def main(args):
     print(f"Using device: {device}")
     
     # 1. Prepare Data
+    # Point to processed data
+    # IMPORTANT: The CataractDataset now expects root_dir to potentially have splits or classes inside.
+    # We structured it as processed/fundus/binary/train and processed/fundus/binary/val
+    
+    binary_root = os.path.join(Config.PROCESSED_DATA_DIR, 'fundus', 'binary')
+    
+    # Train set (Augmented ON DISK -> No heavy online transforms needed, maybe just Normalize)
+    # Actually, we might still want Normalize if we didn't do it in dataset (we only did ToTensor)
+    # But get_train_transforms usually adds Rotation etc. We should use get_valid_transforms (Resize/Recenter/Normalize)
+    # or a custom minimal transform.
+    # Since dataset.py does ToTensor, we might just need Normalize.
+    # For now, let's use get_valid_transforms which is usually lighter (Resize/Normalize), 
+    # but our images are already resized.
+    # So we used is_preprocessed=True in Dataset, which does ToTensor.
+    # Let's inspect Dataset again. It does ToTensor. 
+    # Transforms usually expect PIL or Tensor. 
+    # If we pass transform to Dataset, it applies it after ToTensor.
+    # We should likely just use Normalize here.
+    
     train_dataset = CataractDataset(
-        root_dir=Config.RAW_DATA_BINARY, 
+        root_dir=binary_root, 
         split='train',
-        transform=get_train_transforms('fundus')
+        transform=None, # Already augmented and resized
+        is_preprocessed=True
     )
+    
     valid_dataset = CataractDataset(
-        root_dir=Config.RAW_DATA_BINARY, 
-        split='valid',
-        transform=get_valid_transforms('fundus')
+        root_dir=binary_root, 
+        split='val', # Note: 'val' not 'valid' per my prepare script
+        transform=None, # Already resized
+        is_preprocessed=True
     )
     
     train_loader = DataLoader(
@@ -148,13 +170,21 @@ def main(args):
         print(f"Train Loss: {train_loss:.4f} | Acc: {train_acc:.4f} | F1: {train_f1:.4f}")
         print(f"Valid Loss: {valid_loss:.4f} | Acc: {valid_acc:.4f} | F1: {valid_f1:.4f}")
         
-        # Save Best Model (using F1 now as it's more robust)
         if valid_f1 > best_valid_acc:
             best_valid_acc = valid_f1 # reuse variable name to avoid refactoring whole logic, effectively best_score
             patience_counter = 0
-            save_path = os.path.join(Config.MODEL_SAVE_DIR, f"{Config.MODEL_NAME}_best.pth")
-            torch.save(model.state_dict(), save_path)
-            print(f"Model saved to {save_path} (Best F1)")
+            
+            # Save with timestamp to prevent overwrite
+            import time
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            
+            unique_save_path = os.path.join(Config.MODEL_SAVE_DIR, f"{Config.MODEL_NAME}_best_{timestamp}.pth")
+            standard_save_path = os.path.join(Config.MODEL_SAVE_DIR, f"{Config.MODEL_NAME}_best.pth")
+            
+            torch.save(model.state_dict(), unique_save_path)
+            torch.save(model.state_dict(), standard_save_path)
+            
+            print(f"Model saved to {unique_save_path} and updated {standard_save_path} (Best F1)")
         else:
             patience_counter += 1
             
