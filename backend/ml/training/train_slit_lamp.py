@@ -4,13 +4,18 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
+import sys
 
-from config import Config
-from preprocessing.dataset import CataractDataset
-from models.densenet import get_model
-from preprocessing.augmentations import get_train_transforms, get_valid_transforms
+# Add project root to path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+
+from backend.config import Config
+from backend.ml.preprocessing.dataset import SlitLampDataset
+from backend.ml.models.densenet import get_model
+from backend.ml.preprocessing.augmentations import get_train_transforms, get_valid_transforms
+from torch.utils.data import Dataset
 
 def train_one_epoch(model, loader, criterion, optimizer, device):
     model.train()
@@ -21,7 +26,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
     loop = tqdm(loader, leave=False)
     for images, labels in loop:
         images = images.to(device)
-        labels = labels.to(device).float().unsqueeze(1)
+        labels = labels.to(device).long() # CrossEntropyLoss expects long labels
         
         optimizer.zero_grad()
         outputs = model(images)
@@ -33,7 +38,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
         running_loss += loss.item()
         
         # Calculate accuracy
-        predicted = (torch.sigmoid(outputs) > 0.5).float()
+        _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
         
@@ -52,14 +57,14 @@ def validate(model, loader, criterion, device):
     with torch.no_grad():
         for images, labels in loader:
             images = images.to(device)
-            labels = labels.to(device).float().unsqueeze(1)
+            labels = labels.to(device).long()
             
             outputs = model(images)
             loss = criterion(outputs, labels)
             
             running_loss += loss.item()
             
-            predicted = (torch.sigmoid(outputs) > 0.5).float()
+            _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
             
@@ -73,16 +78,30 @@ def main(args):
     print(f"Using device: {device}")
     
     # 1. Prepare Data
-    train_dataset = CataractDataset(
-        root_dir=Config.RAW_DATA_DIR, 
-        split='train',
-        transform=get_train_transforms('fundus')
-    )
-    valid_dataset = CataractDataset(
-        root_dir=Config.RAW_DATA_DIR, 
-        split='valid',
-        transform=get_valid_transforms('fundus')
-    )
+    # 1. Prepare Data
+    full_dataset = SlitLampDataset(root_dir=Config.RAW_DATA_SLIT_LAMP)
+    
+    # Split 80/20
+    train_size = int(0.8 * len(full_dataset))
+    valid_size = len(full_dataset) - train_size
+    train_subset, valid_subset = random_split(full_dataset, [train_size, valid_size])
+    
+    class TransformDataset(Dataset):
+        def __init__(self, subset, transform=None):
+            self.subset = subset
+            self.transform = transform
+            
+        def __getitem__(self, index):
+            x, y = self.subset[index]
+            if self.transform:
+                x = self.transform(x)
+            return x, y
+            
+        def __len__(self):
+            return len(self.subset)
+
+    train_dataset = TransformDataset(train_subset, transform=get_train_transforms('slit_lamp'))
+    valid_dataset = TransformDataset(valid_subset, transform=get_valid_transforms('slit_lamp'))
     
     train_loader = DataLoader(
         train_dataset, 
@@ -97,17 +116,18 @@ def main(args):
         num_workers=Config.NUM_WORKERS
     )
     
+    print(f"Total samples: {len(full_dataset)}")
     print(f"Train samples: {len(train_dataset)}, Valid samples: {len(valid_dataset)}")
     
     if args.dry_run:
-        print("Dry run mode enabled. Training for limited batches.")
-        # Logic to limit batches could be here, or just run 1 epoch with break
+        print("Dry run mode enabled.")
     
     # 2. Model, Loss, Optimizer
-    model = get_model(num_classes=Config.NUM_CLASSES, dropout_rate=Config.DROPOUT_RATE)
+    # Config.SLIT_LAMP_NUM_CLASSES is 3
+    model = get_model(num_classes=Config.SLIT_LAMP_NUM_CLASSES, dropout_rate=Config.DROPOUT_RATE)
     model = model.to(device)
     
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=Config.LEARNING_RATE)
     
     best_valid_acc = 0.0
@@ -127,7 +147,7 @@ def main(args):
         if valid_acc > best_valid_acc:
             best_valid_acc = valid_acc
             patience_counter = 0
-            save_path = os.path.join(Config.MODEL_SAVE_DIR, f"{Config.MODEL_NAME}_best.pth")
+            save_path = os.path.join(Config.MODEL_SAVE_DIR, f"{Config.SLIT_LAMP_MODEL_NAME}_best.pth")
             torch.save(model.state_dict(), save_path)
             print(f"Model saved to {save_path}")
         else:

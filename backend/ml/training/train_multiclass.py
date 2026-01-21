@@ -9,16 +9,16 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report
 from tqdm import tqdm
 
 # Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
-from config import Config
-from preprocessing.dataset import MultiClassCataractDataset
-from models.densenet import get_model
-from preprocessing.augmentations import get_train_transforms, get_valid_transforms
+from backend.config import Config
+from backend.ml.preprocessing.dataset import MultiClassCataractDataset
+from backend.ml.models.densenet import get_model
+from backend.ml.preprocessing.augmentations import get_train_transforms, get_valid_transforms
 
 # Set seed for reproducibility
 def set_seed(seed=42):
@@ -125,6 +125,11 @@ def evaluate(model, loader, criterion, device):
     rec = recall_score(all_labels, all_preds, average='macro', zero_division=0)
     f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
     
+    print("\nConfusion Matrix:")
+    print(confusion_matrix(all_labels, all_preds))
+    print("\nClassification Report:")
+    print(classification_report(all_labels, all_preds, zero_division=0))
+    
     return epoch_loss, acc, prec, rec, f1
 
 def main(args):
@@ -135,12 +140,7 @@ def main(args):
     
     # 1. Prepare Data
     # Point explicitly to the new dataset folder
-    dataset_dir = os.path.join(os.path.dirname(Config.RAW_DATA_DIR), 'dataset_cataract_final')
-    # Use config default if that's what it is, or hardcode if user specified different path.
-    # The user request said "dataset dataset_cataract_final", likely sibling to "data" or inside it?
-    # Based on gitignore diff, it's at root presumably. Let's check.
-    # We did list_dir on `c:\main_pjt\cataract-new\dataset_cataract_final` and it found it.
-    dataset_dir = r"c:\main_pjt\cataract-new\dataset_cataract_final"
+    dataset_dir = Config.RAW_DATA_MULTICLASS
     
     if not os.path.exists(dataset_dir):
         print(f"Dataset directory not found: {dataset_dir}")

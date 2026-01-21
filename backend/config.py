@@ -3,12 +3,25 @@ import os
 
 class Config:
     # Project Paths
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DATA_DIR = os.path.join(BASE_DIR, 'data')
-    RAW_DATA_DIR = os.path.join(BASE_DIR, 'Cataract', 'Cataract')
+    # backend/config.py -> backend -> project_root
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+    
+    # Raw Data
+    RAW_DATA_BINARY = os.path.join(DATA_DIR, 'raw', 'fundus_binary')
+    RAW_DATA_MULTICLASS = os.path.join(DATA_DIR, 'raw', 'fundus_multiclass')
+    RAW_DATA_SLIT_LAMP = os.path.join(DATA_DIR, 'raw', 'slit_lamp')
+    
+    # Processed Data
     PROCESSED_DATA_DIR = os.path.join(DATA_DIR, 'processed')
     SPLITS_DIR = os.path.join(DATA_DIR, 'splits')
-    MODEL_SAVE_DIR = os.path.join(BASE_DIR, 'saved_models')
+    
+    # Models
+    MODEL_SAVE_DIR = os.path.join(PROJECT_ROOT, 'saved_models')
+    
+    # Uploads (for web app)
+    # Using relative path for Flask to handle, or absolute
+    UPLOAD_FOLDER = os.path.join(PROJECT_ROOT, 'backend', 'app', 'static', 'uploads')
     
     # Data params
     IMAGE_SIZE = (224, 224)
@@ -21,7 +34,6 @@ class Config:
     DROPOUT_RATE = 0.5
     
     # Slit-Lamp Params
-    SLIT_LAMP_DIR = os.path.join(BASE_DIR, 'Cataract Slitlamp', 'slit-lamp')
     SLIT_LAMP_CLASSES = ['normal', 'immature', 'mature']
     SLIT_LAMP_NUM_CLASSES = 3
     SLIT_LAMP_MODEL_NAME = 'densenet169_slit_lamp'
@@ -39,6 +51,7 @@ class Config:
         os.makedirs(Config.MODEL_SAVE_DIR, exist_ok=True)
         os.makedirs(Config.PROCESSED_DATA_DIR, exist_ok=True)
         os.makedirs(Config.SPLITS_DIR, exist_ok=True)
+        os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
 
 if __name__ == "__main__":
     Config.ensure_dirs()
