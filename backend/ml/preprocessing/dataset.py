@@ -4,9 +4,9 @@ import torch
 from torch.utils.data import Dataset
 from PIL import Image
 import numpy as np
-from config import Config
-from preprocessing.image_loader import load_image
-from preprocessing.pipeline import preprocess_pipeline
+from backend.config import Config
+from backend.ml.preprocessing.image_loader import load_image
+from backend.ml.preprocessing.pipeline import preprocess_pipeline
 
 class CataractDataset(Dataset):
     def __init__(self, root_dir, split='train', transform=None, return_steps=False):
