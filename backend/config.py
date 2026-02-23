@@ -31,17 +31,41 @@ class Config:
     # Model params
     MODEL_NAME = 'densenet169'
     NUM_CLASSES = 1 # Binary classification
-    DROPOUT_RATE = 0.5
+    DROPOUT_RATE = 0.7
     
     # Slit-Lamp Params
     SLIT_LAMP_CLASSES = ['normal', 'immature', 'mature']
     SLIT_LAMP_NUM_CLASSES = 3
     SLIT_LAMP_MODEL_NAME = 'densenet169_slit_lamp'
     
-    # Training params
-    LEARNING_RATE = 1e-4
+    # General Training params (Fallbacks)
+    LEARNING_RATE = 1e-3
     EPOCHS = 20
-    PATIENCE = 5 # Early stopping patience
+    BATCH_SIZE = 4
+    PATIENCE = 10 # Increase patience for longer training
+    DROPOUT_RATE = 0.7 # Updated here from model params section if needed, or rely on usage
+    
+    # Specific Training Params (Binary)
+    BINARY_LEARNING_RATE = 1e-4
+    BINARY_EPOCHS = 20
+    BINARY_BATCH_SIZE = 16
+    BINARY_DROPOUT_RATE = 0.5
+    
+    # Specific Training Params (Multiclass)
+    MULTICLASS_LEARNING_RATE = 1e-4
+    MULTICLASS_EPOCHS = 20
+    MULTICLASS_BATCH_SIZE = 16
+    MULTICLASS_DROPOUT_RATE = 0.5
+    
+    # Specific Training Params (Slit Lamp)
+    SLIT_LAMP_LEARNING_RATE = 1e-4
+    SLIT_LAMP_EPOCHS = 20
+    SLIT_LAMP_BATCH_SIZE = 16
+    SLIT_LAMP_DROPOUT_RATE = 0.5
+    
+    # Optimization
+    WEIGHT_DECAY = 0.01
+    CLASS_WEIGHTS = [1.0, 3.5, 1.8, 1.0] # Normal, Mild, Moderate, Severe
     
     # Random Seed
     SEED = 42

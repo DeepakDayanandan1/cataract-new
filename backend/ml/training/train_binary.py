@@ -19,14 +19,17 @@ from backend.ml.preprocessing.dataset import CataractDataset
 from backend.ml.models.densenet import get_model
 from backend.ml.preprocessing.augmentations import get_train_transforms, get_valid_transforms
 
-def train_one_epoch(model, loader, criterion, optimizer, device):
+def train_one_epoch(model, loader, criterion, optimizer, device, dry_run=False):
     model.train()
     running_loss = 0.0
     all_preds = []
     all_labels = []
     
     loop = tqdm(loader, leave=False)
-    for images, labels in loop:
+    for idx, (images, labels) in enumerate(loop):
+        if hasattr(args, 'dry_run') and args.dry_run and idx >= 2:
+            break
+            
         images = images.to(device)
         labels = labels.to(device).float().unsqueeze(1)
         
@@ -56,14 +59,16 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
     
     return epoch_loss, epoch_acc, epoch_f1
 
-def validate(model, loader, criterion, device):
+def validate(model, loader, criterion, device, dry_run=False):
     model.eval()
     running_loss = 0.0
     all_preds = []
     all_labels = []
     
     with torch.no_grad():
-        for images, labels in loader:
+        for idx, (images, labels) in enumerate(loader):
+            if dry_run and idx >= 2:
+                break
             images = images.to(device)
             labels = labels.to(device).float().unsqueeze(1)
             
@@ -120,42 +125,57 @@ def main(args):
     train_dataset = CataractDataset(
         root_dir=binary_root, 
         split='train',
-        transform=None, # Already augmented and resized
+        transform=get_train_transforms(image_type='fundus', augmentation_level='standard'),
         is_preprocessed=True
     )
     
     valid_dataset = CataractDataset(
         root_dir=binary_root, 
         split='val', # Note: 'val' not 'valid' per my prepare script
-        transform=None, # Already resized
+        transform=get_valid_transforms(image_type='fundus'), # Valid stays simple
         is_preprocessed=True
     )
     
     train_loader = DataLoader(
         train_dataset, 
-        batch_size=Config.BATCH_SIZE, 
+        batch_size=Config.BINARY_BATCH_SIZE, 
         shuffle=True, 
         num_workers=Config.NUM_WORKERS
     )
     valid_loader = DataLoader(
         valid_dataset, 
-        batch_size=Config.BATCH_SIZE, 
+        batch_size=Config.BINARY_BATCH_SIZE, 
         shuffle=False, 
         num_workers=Config.NUM_WORKERS
     )
     
     print(f"Train samples: {len(train_dataset)}, Valid samples: {len(valid_dataset)}")
     
+    print("\n" + "="*50)
+    print("TRAINING CONFIGURATION")
+    print("="*50)
+    print(f"Model: {Config.MODEL_NAME}")
+    print(f"Device: {device}")
+    print(f"Epochs: {args.epochs}")
+    print(f"Batch Size: {Config.BINARY_BATCH_SIZE}")
+    print(f"Learning Rate: {Config.BINARY_LEARNING_RATE}")
+    print(f"Augmentation: {'Online + Offline' if Config.AUGMENTATION_ENABLED else 'Online Only'}")
+    print(f"Dataset: Fundus Binary")
+    print("-" * 30)
+    print(f"Train Size: {len(train_dataset)}")
+    print(f"Valid Size: {len(valid_dataset)}")
+    print("="*50 + "\n")
+
     if args.dry_run:
         print("Dry run mode enabled. Training for limited batches.")
-        # Logic to limit batches could be here, or just run 1 epoch with break
+        args.epochs = 1
     
     # 2. Model, Loss, Optimizer
-    model = get_model(num_classes=Config.NUM_CLASSES, dropout_rate=Config.DROPOUT_RATE)
+    model = get_model(num_classes=Config.NUM_CLASSES, dropout_rate=Config.BINARY_DROPOUT_RATE)
     model = model.to(device)
     
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.Adam(model.parameters(), lr=Config.LEARNING_RATE)
+    optimizer = optim.Adam(model.parameters(), lr=Config.BINARY_LEARNING_RATE)
     
     best_valid_acc = 0.0
     patience_counter = 0
@@ -164,8 +184,8 @@ def main(args):
     for epoch in range(args.epochs):
         print(f"\nEpoch {epoch+1}/{args.epochs}")
         
-        train_loss, train_acc, train_f1 = train_one_epoch(model, train_loader, criterion, optimizer, device)
-        valid_loss, valid_acc, valid_f1 = validate(model, valid_loader, criterion, device)
+        train_loss, train_acc, train_f1 = train_one_epoch(model, train_loader, criterion, optimizer, device, args.dry_run)
+        valid_loss, valid_acc, valid_f1 = validate(model, valid_loader, criterion, device, args.dry_run)
         
         print(f"Train Loss: {train_loss:.4f} | Acc: {train_acc:.4f} | F1: {train_f1:.4f}")
         print(f"Valid Loss: {valid_loss:.4f} | Acc: {valid_acc:.4f} | F1: {valid_f1:.4f}")
@@ -197,7 +217,13 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=Config.EPOCHS, help="Number of epochs")
-    parser.add_argument("--dry_run", action="store_true", help="Run a single epoch for testing")
+    parser.add_argument("--epochs", type=int, default=Config.BINARY_EPOCHS, help="Number of epochs")
+    parser.add_argument("--dry-run", action="store_true", help="Run a single epoch for testing")
     args = parser.parse_args()
+    
+    # Inject dry_run into args if not present (though it is here) purely for function signature compatibility if needed
+    # But better to pass args to train_one_epoch or attach to model? No, simple break loop.
+    # We need to pass args or dry_run flag to train_one_epoch to break early.
+    # Or just use the global args which is dirty.
+    # Let's clean this up: Pass dry_run to train_one_epoch
     main(args)

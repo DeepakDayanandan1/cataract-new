@@ -2,32 +2,33 @@
 import torch
 from torchvision import transforms
 
-def get_train_transforms(image_type='fundus'):
+def get_train_transforms(image_type='fundus', augmentation_level='standard'):
     """
     Returns training transformations based on image type.
     
     Args:
         image_type (str): 'fundus' or 'slit_lamp'
+        augmentation_level (str): 'standard' or 'very_aggressive'
     """
     if image_type == 'fundus':
-        return transforms.Compose([
-            # Fundus images can be rotated slightly, but usually orientation matters. 
-            # Vert/Horiz flips are valid for fundus (retina doesn't change meaning if flipped, usually)
-            # However, optic disc location changes. But for classification (cataract vs normal),
-            # the features are local texture/opacity.
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomVerticalFlip(p=0.5),
-            transforms.RandomRotation(degrees=30),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-            # Normalization is often done in dataset or here. 
-            # In dataset.py, tensor is created. So these expect Tensor.
-            # Normalization to [0,1] happens in pipeline.py.
-            # So here we might typically normalize to mean/std if using pretrained models.
-            # DenseNet expects mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225] usually.
-            # Use a safe default for medical images if domain specific mean/std unknown, 
-            # or just rely on the [0,1] input. 
-            # For now, let's just stick to geometric/color augs.
-        ])
+        if augmentation_level == 'very_aggressive':
+            return transforms.Compose([
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomVerticalFlip(p=0.5),
+                transforms.RandomRotation(degrees=45),
+                transforms.RandomResizedCrop(size=224, scale=(0.8, 1.0)), # Zoom in/out
+                transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+                transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), shear=10),
+                transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),
+            ])
+        else:
+            # Standard
+            return transforms.Compose([
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomVerticalFlip(p=0.5),
+                transforms.RandomRotation(degrees=30),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            ])
     elif image_type == 'slit_lamp':
         return transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
