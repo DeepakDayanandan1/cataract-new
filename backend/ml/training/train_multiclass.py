@@ -258,7 +258,7 @@ def main(args):
         print(f"Valid: Loss={valid_loss:.4f} Acc={valid_acc:.4f} F1={valid_f1:.4f}")
         
         # Save Best Model based on Valid F1
-        if valid_f1 > best_f1:
+        if valid_f1 > best_f1 and not args.dry_run:
             best_f1 = valid_f1
             
             import time

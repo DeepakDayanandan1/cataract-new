@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 import sys
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
@@ -20,8 +21,9 @@ from torch.utils.data import Dataset
 def train_one_epoch(model, loader, criterion, optimizer, device, dry_run=False):
     model.train()
     running_loss = 0.0
-    correct = 0
-    total = 0
+    all_preds = []
+    all_labels = []
+    all_confidences = []
     
     loop = tqdm(loader, leave=False)
     for idx, (images, labels) in enumerate(loop):
@@ -39,22 +41,32 @@ def train_one_epoch(model, loader, criterion, optimizer, device, dry_run=False):
         
         running_loss += loss.item()
         
-        # Calculate accuracy
-        _, predicted = torch.max(outputs.data, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+        # Calculate accuracy and confidence
+        probs = torch.nn.functional.softmax(outputs, dim=1)
+        confidences, preds = torch.max(probs, dim=1)
+        
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+        all_confidences.extend(confidences.cpu().detach().numpy())
         
         loop.set_description(f"Loss: {loss.item():.4f}")
 
     epoch_loss = running_loss / len(loader)
-    epoch_acc = correct / total
-    return epoch_loss, epoch_acc
+    
+    acc = accuracy_score(all_labels, all_preds)
+    prec = precision_score(all_labels, all_preds, average='macro', zero_division=0)
+    rec = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+    f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+    avg_conf = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
+    
+    return epoch_loss, acc, prec, rec, f1, avg_conf
 
 def validate(model, loader, criterion, device, dry_run=False):
     model.eval()
     running_loss = 0.0
-    correct = 0
-    total = 0
+    all_preds = []
+    all_labels = []
+    all_confidences = []
     
     with torch.no_grad():
         for idx, (images, labels) in enumerate(loader):
@@ -68,13 +80,26 @@ def validate(model, loader, criterion, device, dry_run=False):
             
             running_loss += loss.item()
             
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            probs = torch.nn.functional.softmax(outputs, dim=1)
+            confidences, preds = torch.max(probs, dim=1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            all_confidences.extend(confidences.cpu().numpy())
             
     epoch_loss = running_loss / len(loader)
-    epoch_acc = correct / total
-    return epoch_loss, epoch_acc
+    
+    acc = accuracy_score(all_labels, all_preds)
+    prec = precision_score(all_labels, all_preds, average='macro', zero_division=0)
+    rec = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+    f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+    avg_conf = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
+    
+    print(f"\nAverage Confidence Score: {avg_conf:.4f}")
+    print("Validation Classification Report:")
+    print(classification_report(all_labels, all_preds, target_names=Config.SLIT_LAMP_CLASSES, zero_division=0))
+    
+    return epoch_loss, acc, prec, rec, f1, avg_conf
 
 def main(args):
     Config.ensure_dirs()
@@ -157,14 +182,14 @@ def main(args):
     for epoch in range(args.epochs):
         print(f"\nEpoch {epoch+1}/{args.epochs}")
         
-        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device, args.dry_run)
-        valid_loss, valid_acc = validate(model, valid_loader, criterion, device, args.dry_run)
+        train_loss, train_acc, train_prec, train_rec, train_f1, train_conf = train_one_epoch(model, train_loader, criterion, optimizer, device, args.dry_run)
+        valid_loss, valid_acc, valid_prec, valid_rec, valid_f1, valid_conf = validate(model, valid_loader, criterion, device, args.dry_run)
         
-        print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}")
-        print(f"Valid Loss: {valid_loss:.4f} | Valid Acc: {valid_acc:.4f}")
+        print(f"Train Loss: {train_loss:.4f} | Acc: {train_acc:.4f} | Prec: {train_prec:.4f} | Rec: {train_rec:.4f} | F1: {train_f1:.4f} | Conf: {train_conf:.4f}")
+        print(f"Valid Loss: {valid_loss:.4f} | Acc: {valid_acc:.4f} | Prec: {valid_prec:.4f} | Rec: {valid_rec:.4f} | F1: {valid_f1:.4f} | Conf: {valid_conf:.4f}")
         
-        # Save Best Model
-        if valid_acc > best_valid_acc:
+        # Save Best Model based on Validation Accuracy (can be changed to F1)
+        if valid_acc > best_valid_acc and not args.dry_run:
             best_valid_acc = valid_acc
             patience_counter = 0
             
@@ -178,7 +203,7 @@ def main(args):
             torch.save(model.state_dict(), standard_save_path)
             
             print(f"Model saved to {unique_save_path} and updated {standard_save_path}")
-        else:
+        elif not args.dry_run:
             patience_counter += 1
             
         if patience_counter >= Config.PATIENCE:
