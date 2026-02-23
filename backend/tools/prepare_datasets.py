@@ -1,5 +1,6 @@
 
 import os
+import argparse
 import shutil
 import cv2
 import numpy as np
@@ -14,6 +15,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 from backend.config import Config
 from backend.ml.preprocessing.pipeline import preprocess_pipeline
+from backend.ml.preprocessing.augmentations import get_train_transforms
+import torch
+from torchvision import transforms
 
 def ensure_clean_dir(directory):
     if os.path.exists(directory):
@@ -26,51 +30,10 @@ def save_image(image_array, path):
         image_array = (image_array * 255).astype(np.uint8)
     Image.fromarray(image_array).save(path)
 
-def generate_augmentations(image):
-    """
-    Generates 4 versions of the image:
-    1. Original
-    2. Random Rotation (-15 to 15 degrees)
-    3. Random Flip (Horizontal)
-    4. Color Jitter (Brightness/Contrast)
-    
-    Args:
-        image: Numpy array (H, W, 3), uint8 or float [0,1]
-    Returns:
-        List of 4 numpy images
-    """
-    # Convert to PIL for easy transformations
-    if image.dtype != np.uint8:
-        pil_img = Image.fromarray((image * 255).astype(np.uint8))
-    else:
-        pil_img = Image.fromarray(image)
-        
-    augs = []
-    
-    # 1. Original
-    augs.append(np.array(pil_img))
-    
-    # 2. Rotation
-    angle = random.uniform(-15, 15)
-    rot_img = pil_img.rotate(angle, resample=Image.BILINEAR)
-    augs.append(np.array(rot_img))
-    
-    # 3. Horizontal Flip
-    flip_img = pil_img.transpose(Image.FLIP_LEFT_RIGHT)
-    augs.append(np.array(flip_img))
-    
-    # 4. Color Jitter (Brightness/Contrast)
-    # Factor 1.0 is original, 0.5 is 50%, 1.5 is 150%
-    enhancer = ImageEnhance.Brightness(pil_img)
-    bright_img = enhancer.enhance(random.uniform(0.8, 1.2))
-    enhancer = ImageEnhance.Contrast(bright_img)
-    contrast_img = enhancer.enhance(random.uniform(0.8, 1.2))
-    augs.append(np.array(contrast_img))
-    
-    # Ensure all are numpy (H, W, 3)
-    return augs
+# Removed internal generate_augmentations
 
-def process_and_save_dataset(name, raw_root, processed_root, split_ratios=(0.7, 0.15, 0.15), use_green_channel=True):
+
+def process_and_save_dataset(name, raw_root, processed_root, split_ratios=(0.7, 0.15, 0.15), use_green_channel=True, dry_run=False):
     print(f"\nScanning {name} dataset from {raw_root}...")
     
     if not os.path.exists(raw_root):
@@ -187,6 +150,9 @@ def process_and_save_dataset(name, raw_root, processed_root, split_ratios=(0.7, 
         print(f"Processing {split_name} set...")
         
         for idx, (img_path, label) in enumerate(tqdm(zip(sp_paths, sp_labels), total=len(sp_paths))):
+            if dry_run and idx >= 2: # Process only 2 images per split for dry run
+                break
+
             try:
                 pil_img = Image.open(img_path).convert('RGB')
                 img_np = np.array(pil_img)
@@ -207,14 +173,46 @@ def process_and_save_dataset(name, raw_root, processed_root, split_ratios=(0.7, 
                 
                 # Augment Check
                 if split_name == 'train' and Config.AUGMENTATION_ENABLED:
-                    # Generate Augmentations
-                    augs = generate_augmentations(img_array_uint8) # Returns list of 4 (H,W,3) uint8 arrays
+                    # Determine image type and level
+                    img_type = 'slit_lamp' if 'slit' in name.lower() else 'fundus'
+                    aug_level = 'standard' # Using standard for offline generation to avoid excessive distortion
                     
-                    for i, aug_img in enumerate(augs):
-                        save_name = f"{base_name}_{i}.jpg"
+                    transform = get_train_transforms(image_type=img_type, augmentation_level=aug_level)
+                    
+                    # 1. Save Original
+                    save_name = f"{base_name}_orig.jpg"
+                    save_path = os.path.join(save_dir, save_name)
+                    save_image(img_array_uint8, save_path)
+                    counts[split_name] += 1
+                    
+                    # 2. Generate Augmented Versions
+                    # Generate Config.AUGMENTATION_FACTOR (default 4) additional versions
+                    # Or should total be 4? Previous logic generated 4 total (1 orig + 3 augs technically, but logic listed 4).
+                    # Config.AUGMENTATION_FACTOR is 4. Let's aim for 4 augmented + 1 original = 5x? 
+                    # Previous logic: returns list of 4 images (Original, Rot, Flip, Jitter).
+                    # So let's generate 3 augmented versions to match the 4x total if we want exact parity, 
+                    # or just use loop for FACTOR amount.
+                    # Let's generate Config.AUGMENTATION_FACTOR variations.
+                    
+                    pil_img = Image.fromarray(img_array_uint8)
+                    
+                    for i in range(Config.AUGMENTATION_FACTOR):
+                        # Apply transform pipeline
+                        aug_img = transform(pil_img)
+                        # Transform returns PIL Image (usually) or Tensor.
+                        # Our augmentations.py returns Compose of PIL transforms, so it returns PIL Image.
+                        
+                        if isinstance(aug_img, torch.Tensor):
+                            aug_img = aug_img.permute(1, 2, 0).numpy() * 255
+                            aug_img = aug_img.astype(np.uint8)
+                        else:
+                            aug_img = np.array(aug_img)
+                            
+                        save_name = f"{base_name}_aug_{i}.jpg"
                         save_path = os.path.join(save_dir, save_name)
                         save_image(aug_img, save_path)
                         counts[split_name] += 1
+
                 else:
                     # Save Original (Preprocessed)
                     save_name = f"{base_name}.jpg"
@@ -226,39 +224,76 @@ def process_and_save_dataset(name, raw_root, processed_root, split_ratios=(0.7, 
                 print(f"Failed to process {img_path}: {e}")
 
     print(f"Finished {name}. Counts: {counts}")
+    print(f"Finished {name}. Counts: {counts}")
     if Config.AUGMENTATION_ENABLED:
         original_train = len(train_paths)
         augmented_train = counts['train']
-        print(f"Train Expansion: {original_train} -> {augmented_train} (Factor: {augmented_train/original_train if original_train > 0 else 0:.2f}x)")
+        expansion_ratio = augmented_train / original_train if original_train > 0 else 0
+        print(f"Train Expansion: {original_train} -> {augmented_train} images")
+        print(f"Expansion Factor: {expansion_ratio:.2f}x")
+    else:
+        print(f"Train Count: {len(train_paths)} (No augmentation)")
 
 def main():
-    print("=== Offline Dataset Preparation ===")
+    parser = argparse.ArgumentParser(description="Prepare datasets for training (Split, Preprocess, Augment)")
+    parser.add_argument("--dataset", type=str, choices=['binary', 'multiclass', 'slit_lamp', 'all'], 
+                        default='all', help="Which dataset to process")
+    parser.add_argument("--no-augment", action="store_true", help="Disable augmentation (overrides Config)")
+    parser.add_argument("--dry-run", action="store_true", help="Run a quick test processing only 1 batch/image per class")
+    
+    args = parser.parse_args()
+    
+    if args.no_augment:
+        Config.AUGMENTATION_ENABLED = False
+        print("Augmentation DISABLED via CLI flag.")
+        
+    print(f"=== Offline Dataset Preparation ===")
+    print(f"Target Dataset(s): {args.dataset}")
+    print(f"Augmentation Enabled: {Config.AUGMENTATION_ENABLED}")
     
     # 1. Fundus Binary
-    process_and_save_dataset(
-        name="Fundus Binary",
-        raw_root=Config.RAW_DATA_BINARY,
-        processed_root=os.path.join(Config.PROCESSED_DATA_DIR, 'fundus', 'binary'),
-        use_green_channel=True
-    )
+    if args.dataset in ['binary', 'all']:
+        process_and_save_dataset(
+            name="Fundus Binary",
+            raw_root=Config.RAW_DATA_BINARY,
+            processed_root=os.path.join(Config.PROCESSED_DATA_DIR, 'fundus', 'binary'),
+            use_green_channel=True,
+            dry_run=args.dry_run
+        )
     
     # 2. Fundus Multiclass
-    process_and_save_dataset(
-        name="Fundus Multiclass",
-        raw_root=Config.RAW_DATA_MULTICLASS,
-        processed_root=os.path.join(Config.PROCESSED_DATA_DIR, 'fundus', 'multiclass'),
-        use_green_channel=True
-    )
+    if args.dataset in ['multiclass', 'all']:
+        process_and_save_dataset(
+            name="Fundus Multiclass",
+            raw_root=Config.RAW_DATA_MULTICLASS,
+            processed_root=os.path.join(Config.PROCESSED_DATA_DIR, 'fundus', 'multiclass'),
+            use_green_channel=True,
+            dry_run=args.dry_run
+        )
     
     # 3. Slit Lamp
-    process_and_save_dataset(
-        name="Slit Lamp",
-        raw_root=Config.RAW_DATA_SLIT_LAMP,
-        processed_root=os.path.join(Config.PROCESSED_DATA_DIR, 'slitlamp'),
-        use_green_channel=False
-    )
+    if args.dataset in ['slit_lamp', 'all']:
+        process_and_save_dataset(
+            name="Slit Lamp",
+            raw_root=Config.RAW_DATA_SLIT_LAMP,
+            processed_root=os.path.join(Config.PROCESSED_DATA_DIR, 'slitlamp'),
+            use_green_channel=False,
+            dry_run=args.dry_run
+        )
     
-    print("\nDataset Preparation Complete.")
+    print("\n" + "="*50)
+    print("DATASET PREPARATION COMPLETE")
+    print("="*50)
+    print(f"Dataset(s) Processed: {args.dataset}")
+    print(f"Augmentation Status: {'ENABLED' if Config.AUGMENTATION_ENABLED else 'DISABLED'}")
+    if Config.AUGMENTATION_ENABLED:
+        print(f"Augmentation Factor: {Config.AUGMENTATION_FACTOR}x (Total 1 Original + {Config.AUGMENTATION_FACTOR} Augmented)")
+    
+    print("\npreprocessing Steps Applied:")
+    print("  [Common]: Resize to (224, 224), Normalize [0,1]")
+    print("  [Fundus]: Green Channel Extraction -> Denoise -> CLAHE")
+    print("  [Slit Lamp]: Denoise -> LAB Color Conversion -> CLAHE (L-Channel) -> RGB Conversion")
+    print("="*50)
 
 if __name__ == "__main__":
     main()

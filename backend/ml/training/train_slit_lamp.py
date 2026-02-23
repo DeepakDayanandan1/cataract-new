@@ -17,14 +17,16 @@ from backend.ml.models.densenet import get_model
 from backend.ml.preprocessing.augmentations import get_train_transforms, get_valid_transforms
 from torch.utils.data import Dataset
 
-def train_one_epoch(model, loader, criterion, optimizer, device):
+def train_one_epoch(model, loader, criterion, optimizer, device, dry_run=False):
     model.train()
     running_loss = 0.0
     correct = 0
     total = 0
     
     loop = tqdm(loader, leave=False)
-    for images, labels in loop:
+    for idx, (images, labels) in enumerate(loop):
+        if dry_run and idx >= 2:
+            break
         images = images.to(device)
         labels = labels.to(device).long() # CrossEntropyLoss expects long labels
         
@@ -48,14 +50,16 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
     epoch_acc = correct / total
     return epoch_loss, epoch_acc
 
-def validate(model, loader, criterion, device):
+def validate(model, loader, criterion, device, dry_run=False):
     model.eval()
     running_loss = 0.0
     correct = 0
     total = 0
     
     with torch.no_grad():
-        for images, labels in loader:
+        for idx, (images, labels) in enumerate(loader):
+            if dry_run and idx >= 2:
+                break
             images = images.to(device)
             labels = labels.to(device).long()
             
@@ -85,7 +89,7 @@ def main(args):
     train_dataset = SlitLampDataset(
         root_dir=processed_root,
         split='train',
-        transform=None,
+        transform=get_train_transforms(image_type='slit_lamp', augmentation_level='standard'),
         is_preprocessed=True
     )
     
@@ -93,7 +97,7 @@ def main(args):
     valid_dataset = SlitLampDataset(
         root_dir=processed_root,
         split='val',
-        transform=None,
+        transform=get_valid_transforms(image_type='slit_lamp'),
         is_preprocessed=True
     )
     
@@ -106,29 +110,45 @@ def main(args):
     
     train_loader = DataLoader(
         train_dataset, 
-        batch_size=Config.BATCH_SIZE, 
+        batch_size=Config.SLIT_LAMP_BATCH_SIZE, 
         shuffle=True, 
         num_workers=Config.NUM_WORKERS
     )
     valid_loader = DataLoader(
         valid_dataset, 
-        batch_size=Config.BATCH_SIZE, 
+        batch_size=Config.SLIT_LAMP_BATCH_SIZE, 
         shuffle=False, 
         num_workers=Config.NUM_WORKERS
     )
     
     print(f"Train samples: {len(train_dataset)}, Valid samples: {len(valid_dataset)}")
     
+    print("\n" + "="*50)
+    print("TRAINING CONFIGURATION (SLIT LAMP)")
+    print("="*50)
+    print(f"Model: {Config.SLIT_LAMP_MODEL_NAME}")
+    print(f"Device: {device}")
+    print(f"Epochs: {args.epochs}")
+    print(f"Batch Size: {Config.SLIT_LAMP_BATCH_SIZE}")
+    print(f"Learning Rate: {Config.SLIT_LAMP_LEARNING_RATE}")
+    print(f"Augmentation: {'Online + Offline' if Config.AUGMENTATION_ENABLED else 'Online Only'}")
+    print(f"Dataset: Slit Lamp")
+    print("-" * 30)
+    print(f"Train Size: {len(train_dataset)}")
+    print(f"Valid Size: {len(valid_dataset)}")
+    print("="*50 + "\n")
+
     if args.dry_run:
-        print("Dry run mode enabled.")
+        print("Dry run mode enabled. Limiting to 1 epoch and few batches.")
+        args.epochs = 1
     
     # 2. Model, Loss, Optimizer
     # Config.SLIT_LAMP_NUM_CLASSES is 3
-    model = get_model(num_classes=Config.SLIT_LAMP_NUM_CLASSES, dropout_rate=Config.DROPOUT_RATE)
+    model = get_model(num_classes=Config.SLIT_LAMP_NUM_CLASSES, dropout_rate=Config.SLIT_LAMP_DROPOUT_RATE)
     model = model.to(device)
     
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=Config.LEARNING_RATE)
+    optimizer = optim.Adam(model.parameters(), lr=Config.SLIT_LAMP_LEARNING_RATE)
     
     best_valid_acc = 0.0
     patience_counter = 0
@@ -137,8 +157,8 @@ def main(args):
     for epoch in range(args.epochs):
         print(f"\nEpoch {epoch+1}/{args.epochs}")
         
-        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
-        valid_loss, valid_acc = validate(model, valid_loader, criterion, device)
+        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device, args.dry_run)
+        valid_loss, valid_acc = validate(model, valid_loader, criterion, device, args.dry_run)
         
         print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}")
         print(f"Valid Loss: {valid_loss:.4f} | Valid Acc: {valid_acc:.4f}")
@@ -170,7 +190,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=Config.EPOCHS, help="Number of epochs")
-    parser.add_argument("--dry_run", action="store_true", help="Run a single epoch for testing")
+    parser.add_argument("--epochs", type=int, default=Config.SLIT_LAMP_EPOCHS, help="Number of epochs")
+    parser.add_argument("--dry-run", action="store_true", help="Run a single epoch for testing")
     args = parser.parse_args()
     main(args)
