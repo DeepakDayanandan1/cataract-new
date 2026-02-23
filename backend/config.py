@@ -61,7 +61,7 @@ class Config:
     SLIT_LAMP_LEARNING_RATE = 1e-4
     SLIT_LAMP_EPOCHS = 20
     SLIT_LAMP_BATCH_SIZE = 16
-    SLIT_LAMP_DROPOUT_RATE = 0.5
+    SLIT_LAMP_DROPOUT_RATE = 0.1
     
     # Optimization
     WEIGHT_DECAY = 0.01
