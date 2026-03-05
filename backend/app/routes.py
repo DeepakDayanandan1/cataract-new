@@ -6,12 +6,18 @@ import torch
 import numpy as np
 from flask import Blueprint, render_template, request, jsonify, url_for, current_app
 from PIL import Image
+from torchvision import transforms as T
 
 # Import from backend packages
 from backend.config import Config
 from backend.ml.models.densenet import get_model
 from backend.ml.preprocessing.pipeline import preprocess_pipeline
 from backend.ml.preprocessing.image_loader import load_image
+
+# ImageNet normalization (must match training transforms)
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD  = [0.229, 0.224, 0.225]
+_inference_normalize = T.Normalize(IMAGENET_MEAN, IMAGENET_STD)
 
 # Create Blueprint
 main = Blueprint('main', __name__)
@@ -122,7 +128,8 @@ def predict():
             visualizations['clahe'] = save_temp_image(steps['enhanced'], 'clahe')
         
         # 4. Inference
-        tensor_img = torch.tensor(processed_input).permute(2, 0, 1).float().unsqueeze(0).to(device)
+        tensor_img = torch.tensor(processed_input).permute(2, 0, 1).float()
+        tensor_img = _inference_normalize(tensor_img).unsqueeze(0).to(device)
         
         with torch.no_grad():
             output = model(tensor_img)
@@ -173,7 +180,8 @@ def predict_multiclass():
             visualizations['clahe'] = save_temp_image(steps['enhanced'], 'multi_clahe')
         
         # 4. Inference
-        tensor_img = torch.tensor(processed_input).permute(2, 0, 1).float().unsqueeze(0).to(device)
+        tensor_img = torch.tensor(processed_input).permute(2, 0, 1).float()
+        tensor_img = _inference_normalize(tensor_img).unsqueeze(0).to(device)
         
         with torch.no_grad():
             output = multiclass_model(tensor_img)
@@ -237,7 +245,8 @@ def predict_slit_lamp():
             visualizations['clahe'] = save_temp_image(steps['enhanced'], 'slit_clahe')
         
         # 4. Inference
-        tensor_img = torch.tensor(processed_input).permute(2, 0, 1).float().unsqueeze(0).to(device)
+        tensor_img = torch.tensor(processed_input).permute(2, 0, 1).float()
+        tensor_img = _inference_normalize(tensor_img).unsqueeze(0).to(device)
         
         with torch.no_grad():
             output = slit_lamp_model(tensor_img)

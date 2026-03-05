@@ -127,18 +127,24 @@ class SlitLampDataset(Dataset):
 
         try:
             if self.is_preprocessed:
-                image = Image.open(img_path).convert('RGB')
-                processed_img = np.array(image)
-                processed_img = processed_img.astype(np.float32) / 255.0
+                # Load as PIL image (uint8 RGB, already preprocessed on disk)
+                pil_img = Image.open(img_path).convert('RGB')
             else:
-                image = load_image(img_path)
-                processed_img, _ = preprocess_pipeline(image, target_size=Config.TARGET_SIZE, use_green_channel=False)
-
-            tensor_img = torch.tensor(processed_img).permute(2, 0, 1).float()
+                raw = load_image(img_path)
+                processed_np, _ = preprocess_pipeline(
+                    raw, target_size=Config.TARGET_SIZE, use_green_channel=False
+                )
+                # Convert float [0,1] → uint8 so PIL image is consistent
+                pil_img = Image.fromarray((processed_np * 255).astype(np.uint8))
 
             if self.transform:
-                tensor_img = self.transform(tensor_img)
-            
+                # transform: PIL Image → Tensor  (includes ToTensor + Normalize)
+                return self.transform(pil_img), label
+
+            # No transform: return a plain [0,1] float tensor
+            tensor_img = torch.tensor(
+                np.array(pil_img).astype(np.float32) / 255.0
+            ).permute(2, 0, 1)
             return tensor_img, label
 
         except Exception as e:
